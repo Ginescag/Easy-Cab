@@ -1,7 +1,12 @@
 import socket
+import sys
+
+if len(sys.argv) < 2:
+    print("Uso: python servidor_simple.py <PUERTO>")
+    sys.exit(1)
 
 HOST = 'localhost'
-PORT = 8010
+PORT = int(sys.argv[1])
 
 my_socket=socket.socket()
 my_socket.bind((HOST, PORT))
