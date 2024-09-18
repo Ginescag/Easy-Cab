@@ -5,7 +5,7 @@ if len(sys.argv) < 2:
     print("Uso: python servidor_simple.py <PUERTO>")
     sys.exit(1)
 
-HOST = 'localhost'
+HOST = '0.0.0.0'
 PORT = int(sys.argv[1])
 
 my_socket=socket.socket()
