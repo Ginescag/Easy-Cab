@@ -5,7 +5,7 @@ if len(sys.argv) < 2:
     print("Uso: python servidor_simple.py <PUERTO>")
     sys.exit(1)
 
-HOST = '0.0.0.0'
+HOST = socket.gethostbyname(socket.gethostname())
 PORT = int(sys.argv[1])
 
 my_socket=socket.socket()
@@ -24,3 +24,6 @@ print ("Recibido: ", pet.decode())
 conexion.send("HASTA LUEGO. CORTO CONEXION".encode('utf-8'))
 print ("Cerrando Socket")
 conexion.close()
+
+
+

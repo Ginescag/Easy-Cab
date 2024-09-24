@@ -2,9 +2,11 @@ import socket
 import sys
 
 HEADER = 64
-PORT = 5050
+PORT = 5050  # Asegúrate de que coincida con el puerto correcto
 FORMAT = 'utf-8'
 FIN = "FIN"
+MULT = "MULT"
+SUM = "SUM"
 
 def send(msg):
     message = msg.encode(FORMAT)
@@ -13,31 +15,57 @@ def send(msg):
     send_length += b' ' * (HEADER - len(send_length))
     client.send(send_length)
     client.send(message)
-    
+
 ########## MAIN ##########
 
+print("****** BIENVENIDO A NUESTRO CLIENTE SOCKET ****")
 
-print("****** WELCOME TO OUR BRILLIANT SD UA CURSO 2020/2021 SOCKET CLIENT ****")
-
-if  (len(sys.argv) == 4):
+if len(sys.argv) == 3:
     SERVER = sys.argv[1]
     PORT = int(sys.argv[2])
     ADDR = (SERVER, PORT)
     
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
-    print (f"Establecida conexión en [{ADDR}]")
+    print(f"Conexión establecida con [{ADDR}]")
 
-    msg=sys.argv[3]
-    while msg != FIN :
-        print("Envio al servidor: ", msg)
-        send(msg)
-        print("Recibo del Servidor: ", client.recv(2048).decode(FORMAT))
-        msg=input()
+    while True:
+        print("Elige una operación:")
+        print("SUM")
+        print("MULT")
+        print("Escribe 'FIN' para salir")
 
-    print ("SE ACABO LO QUE SE DABA")
-    print("Envio al servidor: ", FIN)
-    send(FIN)
+        option = input("Selecciona una opción: ").strip().upper()
+
+        if option == 'SUM':
+            send(SUM)  # Envía la operación Sumar
+        elif option == 'MULT':
+            send(MULT)  # Envía la operación Multiplicar
+        elif option == FIN:
+            send(FIN)  # Envía FIN para cerrar la conexión
+            break
+        else:
+            print("Opción no válida")
+            continue
+
+        # Recibe del servidor el mensaje que pide el primer operando
+        primer_operando_msg = client.recv(2048).decode(FORMAT)
+        print(primer_operando_msg)
+        operand1 = input().strip()
+        print(operand1)  
+        send(operand1)
+
+        # Recibe del servidor el mensaje que pide el segundo operando
+        segundo_operando_msg = client.recv(2048).decode(FORMAT)
+        print(segundo_operando_msg)
+        operand2 = input().strip()  
+        send(operand2)
+
+        # Recibe el resultado
+        result = client.recv(2048).decode(FORMAT)
+        print(result)
+
+    print("Conexión cerrada.")
     client.close()
 else:
-    print ("Oops!. Parece que algo falló. Necesito estos argumentos: <ServerIP> <Puerto> <Texto Bienvenida>")
+    print("Error: Debes proporcionar <ServerIP> <Puerto>")
