@@ -2,7 +2,6 @@ import tkinter as tk
 import time
 import json
 import threading
-from queue import Queue
 
 # Constantes para el tamaño de la ventana y las celdas
 WINDOW_SIZE = 600
@@ -22,28 +21,32 @@ class CityMap(tk.Canvas):
         super().__init__(master, width=width, height=height, bg=WHITE)
         self.grid_size = grid_size
         self.cell_size = cell_size
-        self.city_map = [[[] for _ in range(self.grid_size)] for _ in range(self.grid_size)]
-        self.localidad_map = [['' for _ in range(self.grid_size)] for _ in range(self.grid_size)]
-        self.taxi_state = {}
+        self.city_map = [[[] for _ in range(self.grid_size)] for _ in range(self.grid_size)]  # Mapa de objetos (clientes, taxis)
+        self.localidad_map = [['' for _ in range(self.grid_size)] for _ in range(self.grid_size)]  # Mapa separado para las localidades
+        self.taxi_state = {}  # Diccionario para manejar el estado de cada taxi (VERDE o ROJO)
         self.filename = filename
-        self.lock = threading.Lock()
         self.load_map()
 
         self.pack()
         self.draw_grid()
 
-        self.move_queue = Queue()  # Cola para manejar movimientos
-        self.is_moving = False  # Indicador de movimiento en curso
-
     def load_map(self):
         """Lee el archivo JSON y genera el mapa como una matriz 2D."""
         with open(self.filename, 'r') as file:
             data = json.load(file)
-            for loc in data['locations']:
+
+            # Cargar localidades
+            for loc in data.get('locations', []):
                 id_loc = loc['Id']
-                x, y = map(int, loc['POS'].split(','))
+                x, y = map(int, loc['POS'].split(','))  # Extraer las coordenadas como enteros
                 if id_loc.isupper():
-                    self.localidad_map[x][y] = id_loc
+                    self.localidad_map[x][y] = id_loc  # Guardar la localidad en el mapa fijo
+
+            # Cargar clientes
+            for customer in data.get('customers', []):  # Obtener los clientes si existen
+                id_cust = customer['Id']
+                x, y = map(int, customer['POS'].split(','))  # Extraer las coordenadas como enteros
+                self.city_map[x][y].append(id_cust)  # Añadir el cliente al mapa de la ciudad
 
     def draw_grid(self):
         """Dibuja la cuadrícula y las celdas vacías."""
@@ -66,17 +69,16 @@ class CityMap(tk.Canvas):
 
     def add_object(self, obj_id, x, y):
         """Añade un nuevo objeto dinámicamente al mapa, si no existe."""
-        with self.lock:
-            if self.object_exists(obj_id):
-                print(f"Error: El objeto con ID '{obj_id}' ya existe en el mapa o en las localidades.")
-                return
+        if self.object_exists(obj_id):
+            print(f"Error: El objeto con ID '{obj_id}' ya existe en el mapa o en las localidades.")
+            return
 
-            if 0 <= x < self.grid_size and 0 <= y < self.grid_size:
-                self.city_map[x][y].append(obj_id)
-                self.taxi_state[obj_id] = 'VERDE'
-            else:
-                print("Posición fuera de los límites del mapa.")
-            self.draw_map()
+        if 0 <= x < self.grid_size and 0 <= y < self.grid_size:
+            self.city_map[x][y].append(obj_id)
+            self.taxi_state[obj_id] = 'VERDE'  # Inicialmente, el taxi está en estado VERDE
+        else:
+            print("Posición fuera de los límites del mapa.")
+        self.draw_map()
 
     def find_position_by_label(self, label, target_map):
         """Encuentra la posición en el mapa de una etiqueta dada."""
@@ -90,18 +92,17 @@ class CityMap(tk.Canvas):
         """Mueve un objeto en el mapa hacia la nueva posición si está en estado VERDE."""
         current_pos = None
 
-        # Verificar si el taxi está en estado ROJO
+        # Verificar si el taxi está en estado ROJO (parado)
         if self.taxi_state.get(obj_id) == 'ROJO':
             print(f"El taxi {obj_id} está en estado ROJO y no puede moverse.")
             return
 
-        with self.lock:
-            # Buscar el objeto actual en el mapa
-            for x in range(self.grid_size):
-                for y in range(self.grid_size):
-                    if obj_id in self.city_map[x][y]:
-                        current_pos = (x, y)
-                        break
+        # Buscar el objeto actual en el mapa
+        for x in range(self.grid_size):
+            for y in range(self.grid_size):
+                if obj_id in self.city_map[x][y]:
+                    current_pos = (x, y)
+                    break
 
         if current_pos:
             curr_x, curr_y = current_pos
@@ -116,13 +117,11 @@ class CityMap(tk.Canvas):
                 elif curr_y > new_y:
                     curr_y -= 1
 
-                with self.lock:
-                    if obj_id in self.city_map[current_pos[0]][current_pos[1]]:
-                        self.city_map[current_pos[0]][current_pos[1]].remove(obj_id)
-                    self.city_map[curr_x][curr_y].append(obj_id)
-                    self.draw_map()  # Redibujar el mapa completo
-
-                time.sleep(0.1)  # Pausa de movimiento
+                # Mover el taxi sin sobrescribir otros objetos en la misma celda
+                self.city_map[current_pos[0]][current_pos[1]].remove(obj_id)  # Eliminar el taxi de la posición anterior
+                self.city_map[curr_x][curr_y].append(obj_id)  # Añadir el taxi a la nueva posición
+                self.draw_map()  # Redibujar el mapa completo
+                time.sleep(0.25)  # Pausa de movimiento
                 current_pos = (curr_x, curr_y)
         else:
             print(f"Objeto {obj_id} no encontrado en el mapa.")
@@ -137,7 +136,7 @@ class CityMap(tk.Canvas):
                 if self.localidad_map[x][y]:  # Si es una localidad
                     color = BLUE
                     cell_value = self.localidad_map[x][y]
-                elif self.city_map[x][y]:  # Si hay objetos en la celda
+                elif self.city_map[x][y]:  # Si es un objeto (cliente, taxi)
                     cell_value = ''.join(self.city_map[x][y])
                     color = YELLOW if any(map(str.islower, self.city_map[x][y])) else GREEN
                 else:
@@ -172,27 +171,6 @@ class CityMap(tk.Canvas):
                     return
         print(f"No se encontró el cliente '{label}' en el mapa.")
 
-    # Métodos nuevos
-
-    def parar_taxi(self, obj_id):
-        """Cambia el estado del taxi a ROJO (parado)."""
-        if obj_id in self.taxi_state:
-            self.taxi_state[obj_id] = 'ROJO'
-            print(f"Taxi {obj_id} está en estado ROJO.")
-            self.draw_map()
-
-    def reanudar_taxi(self, obj_id):
-        """Cambia el estado del taxi a VERDE (reanudar)."""
-        if obj_id in self.taxi_state:
-            self.taxi_state[obj_id] = 'VERDE'
-            print(f"Taxi {obj_id} ha reanudado el servicio (estado VERDE).")
-            self.draw_map()
-
-    def volver_a_central(self, obj_id):
-        """Mueve el taxi a la posición central [0, 0]."""
-        print(f"El taxi {obj_id} está volviendo a la central.")
-        threading.Thread(target=self.move_object, args=(obj_id, 0, 0)).start()
-
 
 # Crear la ventana principal de Tkinter
 root = tk.Tk()
@@ -204,13 +182,9 @@ city = CityMap(root, "EC_locations.json", WINDOW_SIZE, WINDOW_SIZE, GRID_SIZE, C
 # Añadir objetos (taxis y clientes)
 city.add_object('1', 1, 1)  # Añadir un taxi
 city.add_object('2', 1, 1)  # Añadir otro taxi en la misma casilla
-city.add_object('a', 7, 8)  # Añadir un cliente
 
-# Mover taxis y probar nuevas funcionalidades
+# Mover taxis
 city.move_object_to_localidad('1', 'C')  # Mover el taxi '1' a la localidad 'C'
-city.move_object_to_cliente('2', 'a')  # Mover el taxi '2' al cliente 'a'
-city.volver_a_central('1')  # Volver taxi '1' a la central
-city.volver_a_central('2')  # Volver taxi '2' a la central
-
+city.move_object_to_cliente('2', 'f')  # Mover el taxi '2' al cliente 'f'
 # Iniciar el loop principal de Tkinter
 root.mainloop()
