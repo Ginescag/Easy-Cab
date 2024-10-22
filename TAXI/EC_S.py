@@ -29,18 +29,19 @@ class Sensors:
             if self.force_ko:
                 # Si se ha forzado un KO, lo enviamos y esperamos antes de continuar con OK
                 self.send_status("KO")
-                self.force_ko = False  # Volver a permitir el envío de "OK" tras el "KO"
             else:
                 self.send_status("OK")
             time.sleep(1)
 
     def manual_trigger(self):
-        """Permite al usuario simular una incidencia."""
-        print("Presione 'k' para simular una incidencia (KO). Presione 'q' para salir.")
+        """Permite al usuario alternar entre OK y KO manualmente."""
+        print("Presione 'k' para KO, 'o' para OK, 'q' para salir.")
         while self.running:
             inp = input()
             if inp.lower() == 'k':
-                self.force_ko = True  # Forzamos el KO para enviarlo en el siguiente ciclo
+                self.force_ko = True  # Forzamos KO
+            elif inp.lower() == 'o':
+                self.force_ko = False  # Volvemos a OK
             elif inp.lower() == 'q':
                 self.send_status('q')  # Enviar 'q' para cerrar
                 self.running = False
