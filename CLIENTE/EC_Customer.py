@@ -99,7 +99,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     kafka_ip_port = sys.argv[1]
-    customer_id = int(sys.argv[2])
+    customer_id = sys.argv[2]
     destinations_file = "EC_Requests.json"
 
     # Crear un cliente y ejecutarlo

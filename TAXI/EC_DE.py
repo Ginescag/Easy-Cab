@@ -14,7 +14,7 @@ class DigitalEngine:
         self.status = "OK"
         self.position = [0, 0]
         self.authenticated = False
-       # self.producer = KafkaProducer(bootstrap_servers=kafka_ip_port, value_serializer=lambda v: json.dumps(v).encode('utf-8'))
+        self.producer = KafkaProducer(bootstrap_servers=kafka_ip_port, value_serializer=lambda v: json.dumps(v).encode('utf-8'))
         self.sensor_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     def connect_to_central(self):
@@ -52,6 +52,19 @@ class DigitalEngine:
             self.producer.send('taxi_updates', update_message)
             print(f"Enviada actualización de posición para el taxi {self.taxi_id}: {self.position}, Estado: {self.status}")
 
+    def update_taxi_status_in_json(self):
+        try:
+            with open('../central/taxis_status.json', 'r') as file:
+                taxis_data = json.load(file)
+            taxi_id_str = str(self.taxi_id)
+            if taxi_id_str in taxis_data:
+                taxis_data[taxi_id_str]['status'] = self.status
+                taxis_data[taxi_id_str]['position'] = self.position
+            with open('../central/taxis_status.json', 'w') as file:
+                json.dump(taxis_data, file, indent=4)
+        except Exception as e:
+            print(f"Error al actualizar el estado del taxi en JSON: {e}")
+
     def handle_sensors(self):
         self.sensor_socket.bind((self.de_addr[0], self.de_addr[1]))
         self.sensor_socket.listen(1)
@@ -71,6 +84,10 @@ class DigitalEngine:
                 elif status == "KO":
                     self.status = "KO"
                     print(f"Estado recibido: {self.status}")
+                
+                # Actualizar el estado en el JSON
+                self.update_taxi_status_in_json()
+                
                 time.sleep(1)
                 self.send_position_update()  # Siempre enviar la actualización del estado
         except Exception as e:

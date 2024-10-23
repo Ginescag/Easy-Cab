@@ -2,6 +2,8 @@ import socket
 import sys
 import time
 import threading
+import json
+from kafka import KafkaProducer
 
 class Sensors:
     def __init__(self, ec_de_ip, ec_de_port):
