@@ -82,10 +82,14 @@ class DigitalEngine:
     def run(self):
         """Start the Digital Engine."""
         try:
+            # Primero, intentamos conectarnos a la central y autenticarnos
             self.connect_to_central()
+            
+            # Si la autenticación es exitosa, iniciamos la escucha del sensor
             if self.authenticated:
-                thread = threading.Thread(target=self.handle_sensors)
-                thread.start()
+                print("Conexión y autenticación exitosa. Escuchando al sensor...")
+                self.handle_sensors()  # Ahora, una vez autenticado, escucha al sensor directamente
+
         except Exception as e:
             print(f"An error occurred: {e}")
 
@@ -95,4 +99,4 @@ if __name__ == "__main__":
         sys.exit(1)
 
     DE = DigitalEngine(sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], int(sys.argv[5]))
-    DE.handle_sensors()
+    DE.run()
