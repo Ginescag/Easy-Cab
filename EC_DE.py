@@ -129,14 +129,15 @@ class DigitalEngine:
                     print(f"RECOGER AL CLIENTE EN {self.client_position} PARA IR A {self.goal_position}")
 
     def handle_sensors(self):
+        print(f"Intentando escuchar en la IP: {self.de_addr[0]}, Puerto: {self.de_addr[1]}")
+
         self.sensor_socket.bind((self.de_addr[0], self.de_addr[1]))
         self.sensor_socket.listen(1)
         print("Data engine up and listening at ", self.de_addr[0], " ", self.de_addr[1])
         conn, addr = self.sensor_socket.accept()
         print("NUEVA CONEXION: ", addr)
 
-        avanzado = False
-        try:
+        def recibir_mensajes():
             while True:
                 mensaje = conn.recv(1024).decode('utf-8')
                 if mensaje == 'q':
@@ -144,65 +145,60 @@ class DigitalEngine:
                     break
                 if mensaje:
                     if mensaje == "KO":
-                        self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#{mensaje}#{self.position[0]}#{self.position[1]}")
-                        continue
-                    if self.position == self.client_position and self.ordenado:
-                        self.recogido = True
-                    if not self.recogido:
-                        print(self.recogido)
-                        self.position[0], self.position[1] = self.update_client_coordinates(self.position[0], self.position[1])
-                        self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#{mensaje}#{self.position[0]}#{self.position[1]}")
-                    else:
-                        print(self.recogido)
-                        print(f"Ordenado == {self.ordenado} y llegado =={self.llegado}")
-                        if self.position == self.goal_position and self.ordenado and not self.llegado:
-                            self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#{mensaje}#{self.position[0]}#{self.position[1]}#destino")
-                            print("Servicio completado")
-                            self.llegado = True
-                            m = f"taxi#{self.taxi_id}#cliente#{self.cliente}#ha llegado a su destino"
-                            self.send_to_kafka(TOPIC_TAXI_END_CENTRAL, m)
-                            self.send_to_kafka(TOPIC_TAXI_END_CLIENT, m)
-                            if not avanzado:
-                                avanzado = True
-                                self.position[0] -= 1
-                            self.recogido = False
-                            self.ordenado = False
-                        else:
-                            self.updateCoordinates()
-                            self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#{mensaje}#{self.position[0]}#{self.position[1]}#recogido")
+                        self.status = "KO"
+                    elif mensaje == "OK":
+                        self.status = "OK"
+                    print(f"Mensaje recibido del sensor: {mensaje}")
+                    self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#{mensaje}#{self.position[0]}#{self.position[1]}")
+
+        # Hilo para recibir mensajes del sensor
+        threading.Thread(target=recibir_mensajes, daemon=True).start()
+
+        # Hilo principal para mover el taxi
+        try:
+            while True:
+                # Procesa la lógica de movimiento solo si el estado ha cambiado a "KO"
+                if self.status == "KO":
+                    # Actualizar coordenadas y enviar a Kafka
+                    self.updateCoordinates()
+                    self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#KO#{self.position[0]}#{self.position[1]}")
+
+                time.sleep(1)  # Pausa para simular el proceso
         except socket.error as e:
             print(f"Error al recibir mensaje del Sensor: {e}")
         finally:
             conn.close()
             print("Conexión cerrada")
 
+
     def run(self):
         """Start the Digital Engine."""
         self.recogido = False
         try:
-            # Primero, intentamos conectarnos a la central y autenticarnos
+            # Iniciar los hilos de escucha antes de la autenticación
+            sensor_thread = threading.Thread(target=self.handle_sensors, daemon=True)
+            sensor_thread.start()
+            
+            kafka_thread = threading.Thread(target=self.listen_asignacion_kafka, daemon=True)
+            kafka_thread.start()
+
+            # Luego, intentamos conectarnos a la central y autenticarnos
             self.connect_to_central()
             
-            # Si la autenticación es exitosa, iniciamos la escucha del sensor
+            # Si la autenticación es exitosa
             if self.authenticated:
-                print("Conexión y autenticación exitosa. Escuchando al sensor...")
-                sensor_thread = threading.Thread(target=self.handle_sensors)
-                sensor_thread.start()
-                
-                kafka_thread = threading.Thread(target=self.listen_asignacion_kafka) 
-                kafka_thread.start()
-                
-        
-            while True:
-                # Enviar mensaje de estado periódico a Kafka
-                #send_to_kafka(producer, kafka_topic_status, f"{taxi_id}#RUN#Taxi en movimiento")
-                time.sleep(5)  # Enviar estado cada 5 segundos
+                print("Conexión y autenticación exitosa.")
+                while True:
+                    time.sleep(5)  # Mantener el proceso principal en ejecución
+            else:
+                print("Fallo en la autenticación, revise la conexión con la central.")
         except KeyboardInterrupt:
             print("Cerrando conexiones...")
         finally:
             self.sensor_socket.close()
             self.producer.flush()
             self.consumer.close()
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 6:

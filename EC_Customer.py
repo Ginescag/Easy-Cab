@@ -6,7 +6,7 @@ import threading
 from kafka import KafkaProducer, KafkaConsumer
 
 # Constantes de los tópicos de Kafka
-TOPIC_SOLICITUDES_TAXIS = 'solicitudes-taxis' #produce una solicitud de taxi
+TOPIC_SOLICITUDES_TAXIS = 'solicitudes-taxis' #produce una solicitud de taxi service
 TOPIC_RESPUESTAS_TAXIS = 'respuestas-taxis' #consume una respuesta de la central para los clientes
 TOPIC_TAXI_END_CLIENT = 'taxi-end-client'   #consume un aviso de que se ha acabado el servicio del taxi
 
