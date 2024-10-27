@@ -1,12 +1,14 @@
 import socket
 import threading
 import json
-from kafka import KafkaProducer, KafkaConsumer  # Comentado el uso de Kafka
+from kafka import KafkaProducer, KafkaConsumer
 
 # Constantes de los tópicos de Kafka
-TOPIC_SOLICITUDES_TAXIS = 'solicitudes-taxis'
-TOPIC_RESPUESTAS_TAXIS = 'respuestas-taxis'
-TOPIC_ASIGNACION_TAXIS = 'asignacion-taxis'
+TOPIC_SOLICITUDES_TAXIS = 'solicitudes-taxis' #consume solicitudes de clientes para que les recojan
+TOPIC_RESPUESTAS_TAXIS = 'respuestas-taxis' #produce una respuesta para los clientes
+TOPIC_ASIGNACION_TAXIS = 'asignacion-taxis' #produce una respuesta para los taxis cuando se le asigna un cliente
+TOPIC_TAXI_UPDATES = 'taxi_updates' #consume para obtener el estado y posicion de los taxis
+TOPIC_TAXI_END_CENTRAL = 'taxi-end-central' #envia a central el fin de servicio
 
 class ECCentral:
     def __init__(self, port, kafka_ip_port):
@@ -18,14 +20,17 @@ class ECCentral:
         # Inicializa el productor y consumidor Kafka
         self.kafka_producer = KafkaProducer(bootstrap_servers=self.kafka_ip_port, value_serializer=lambda v: json.dumps(v).encode('utf-8'))
         self.kafka_consumer = KafkaConsumer(TOPIC_SOLICITUDES_TAXIS, bootstrap_servers=self.kafka_ip_port, value_deserializer=lambda v: json.loads(v.decode('utf-8')))
+        self.kafka_consumer_taxiUP = KafkaConsumer(TOPIC_TAXI_UPDATES, bootstrap_servers=self.kafka_ip_port, value_deserializer=lambda v: json.loads(v.decode('utf-8')))
 
+  #------------------socketAUTH--------------------------------------------------------------------------  
     def handle_authentication(self, client_socket, request):
         try:
             taxi_id = request['taxi_id']
             status = request['status']
             position = request['position']
+            available = request['available']
             # Autenticación exitosa y registro del taxi
-            self.taxis[taxi_id] = {'status': status, 'position': position, 'available': True}  # Añadir estado disponible
+            self.taxis[taxi_id] = {'status': status, 'position': position, 'available': available}  # Añadir estado disponible
             self.save_taxis_to_json()
             response = {"status": "OK"}
             client_socket.send(json.dumps(response).encode('utf-8'))
@@ -56,6 +61,7 @@ class ECCentral:
         finally:
             client_socket.close()
 
+#--------------------------------------------------------------------------------------------------------
     def start(self):
         # Iniciar servidor socket
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -78,11 +84,35 @@ class ECCentral:
 
     def consume_kafka_messages(self):
         # Método para consumir mensajes Kafka
+        threading.Thread(target=self.consume_taxi_updates, daemon=True).start()
         for message in self.kafka_consumer:
             print(f"Mensaje recibido de Kafka: {message.value}")
             request = message.value
             if request['type'] == 'customer_request':
                 self.handle_customer_request(request)
+
+    def consume_taxi_updates(self):
+        for message in self.kafka_consumer_taxiUP:
+            print(f"Mensaje de actualización de posición recibido: {message.value}")
+            self.handle_position_update(message.value)
+
+    def handle_position_update(self, request):
+        try:
+            taxi_id = request['taxi_id']
+            position = request['position']
+            status = request['status']
+            available = request['available']
+            # Actualizar la información del taxi
+            if taxi_id in self.taxis:
+                self.taxis[taxi_id]['position'] = position
+                self.taxis[taxi_id]['status'] = status
+                self.taxis[taxi_id]['available'] = available
+                self.save_taxis_to_json()
+                print(f"Estado del taxi {taxi_id} actualizado en el archivo JSON")
+            else:
+                print(f"Taxi ID {taxi_id} no está registrado")
+        except Exception as e:
+            print(f"Error al manejar la actualización de posición: {e}")
 
     def handle_customer_request(self, request):
         # Lógica para manejar la solicitud de un cliente (solicitar taxi)
