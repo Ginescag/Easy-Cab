@@ -9,11 +9,11 @@ import matplotlib.colors as mcolors
 from matplotlib.animation import FuncAnimation
 
 # Constantes de los tópicos de Kafka
-TOPIC_SOLICITUDES_TAXIS = 'solicitudes-taxis' #consume solicitudes de clientes para que les recojan service
-TOPIC_RESPUESTAS_TAXIS = 'respuestas-taxis' #produce una respuesta para los clientes central_replay
-TOPIC_ASIGNACION_TAXIS = 'asignacion-taxis' #produce una respuesta para los taxis cuando se le asigna un cliente taxi commands
-TOPIC_TAXI_UPDATES = 'taxi_updates' #consume para obtener el estado y posicion de los taxis taxi_status
-TOPIC_TAXI_END_CENTRAL = 'taxi-end-central' #envia a central el fin de servicio taxi_end2
+TOPIC_SOLICITUDES_TAXIS = 'solicitudes-taxis' #consume solicitudes de clientes para que les recojan
+TOPIC_RESPUESTAS_TAXIS = 'respuestas-taxis' #produce una respuesta para los clientes
+TOPIC_ASIGNACION_TAXIS = 'asignacion-taxis' #produce una respuesta para los taxis cuando se le asigna un cliente
+TOPIC_TAXI_UPDATES = 'taxi_updates' #consume para obtener el estado y posicion de los taxis
+TOPIC_TAXI_END_CENTRAL = 'taxi-end-central' #envia a central el fin de servicio 
 
 class ECCentral:
     def __init__(self, port, kafka_ip_port, taxi_bd):
@@ -113,6 +113,7 @@ class ECCentral:
 
                     if self.check_taxi_status(taxi_id, estado, taxis):
                         self.save_taxis_to_json(self.taxi_bd, taxis)
+                        print(f"El taxi {taxi_id} está en estado {estado}")       
                     else:
                         print(f"Taxi {taxi_id} no encontrado en el archivo.")
                 else:  # si lo ha recogido
@@ -288,7 +289,7 @@ class ECCentral:
         print("No available taxis.")
         return False
     
-    
+
     def actualizar_mapa(self, frame, taxis, ubicaciones, ax, size):
         ax.clear()  # Limpiar el gráfico actual para redibujar
 
