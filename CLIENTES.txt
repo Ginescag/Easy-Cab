@@ -1,0 +1,21 @@
+CLIENTES:
+
+python .\EC_Customer.py 127.0.0.1:9092 d .\Customer_services.json
+
+python .\EC_Customer.py 127.0.0.1:9092 b .\Customer_services2.json
+
+CENTRAL:
+
+python .\EC_Central.py 5000 127.0.0.1:9092 taxis.json     
+
+TAXIS:
+
+python .\EC_DE.py 127.0.0.1 5000 127.0.0.1:9092 1489 2
+
+python .\EC_S.py 127.0.0.1 1489
+
+python .\EC_DE.py 127.0.0.1 5000 127.0.0.1:9092 1488 1
+
+python .\EC_S.py 127.0.0.1 1488
+
+   

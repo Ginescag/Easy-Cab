@@ -2,8 +2,8 @@
     {
         "id": 1,
         "coordenada_origen": {
-            "x": 1,
-            "y": 1
+            "x": 5,
+            "y": 3
         },
         "coordenada_destino": {
             "x": null,
@@ -12,13 +12,12 @@
         },
         "estado": "verde",
         "disponible": true,
-        "verificado": false,
-        "recogido":false,
+        "verificado": true,
+        "recogido": false,
         "cliente": {
-            "id_cliente": "",
             "x": null,
-            "y": null
-
+            "y": null,
+            "id_cliente": ""
         }
     },
     {
@@ -35,7 +34,7 @@
         "estado": "verde",
         "disponible": true,
         "verificado": false,
-        "recogido":false,
+        "recogido": false,
         "cliente": {
             "id_cliente": "",
             "x": null,

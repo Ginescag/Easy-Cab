@@ -15,6 +15,8 @@ TOPIC_ASIGNACION_TAXIS = 'asignacion-taxis' #produce una respuesta para los taxi
 TOPIC_TAXI_UPDATES = 'taxi_updates' #consume para obtener el estado y posicion de los taxis
 TOPIC_TAXI_END_CENTRAL = 'taxi-end-central' #envia a central el fin de servicio 
 
+#EN SOCKET_TAXI NO ME DA ERROR SI LE PASO UN TAXI_ID QUE NO ESTA EN TAXIS.JSON
+
 class ECCentral:
     def __init__(self, port, kafka_ip_port, taxi_bd):
         self.port = int(port)
@@ -57,13 +59,17 @@ class ECCentral:
 
         
   #------------------socketAUTH--------------------------------------------------------------------------  
+    
+    #ok
+    def save_taxis_to_json(self, filename, taxis):
+        try:    
+            with open(filename, 'w') as file:
+                json.dump(taxis, file, indent=4)
+            # print(f"Archivo {filename} actualizado correctamente.")
+        except IOError as e:
+            print(f"Error al escribir en {filename}: {e}")
 
-    def save_taxis_to_json(filename, taxis):
-        # Guarda el estado de los taxis en un archivo JSON
-        with open(filename, 'w') as file:
-            json.dump(taxis, file, indent=4)
-   
-
+    #ok
     def load_file(self, filename):
         try:
             with open(filename, 'r') as file:
@@ -75,77 +81,79 @@ class ECCentral:
             print(f"Error decoding {filename}.")
             return []
     
-
-    def check_taxi_status(id_taxi, estado, taxis):
+    #ok
+    def update_taxi_status(self, id_taxi, status, taxis):
         for taxi in taxis:
             if taxi["id"] == id_taxi:
-                taxi["estado"] = "verde" if estado == "OK" else "rojo"
+                taxi["estado"] = "verde" if status == "OK" else "rojo"
                 return True
         return False
 
-
-    def check_id(taxis, id_taxi):
+    #ok
+    def check_id(self, taxis, id_taxi):
         for taxi in taxis:
-            if taxi['id'] == id_taxi:
+            if taxi["id"] == id_taxi:
                 return True
         return False
     
 
     def listen_taxi_updates(self):
-        try:
-            for msg in self.kafka_consumer_taxi:
-                # Proceso del mensaje de estado recibido desde Kafka
-                estado_mensaje = msg.value
-                partes = estado_mensaje.split("#")
-                taxis = self.load_file(self.taxi_bd)
-                mapa = self.load_file('Mapa.json')
+        for msg in self.kafka_consumer_taxi:
+            if msg is None:
+                continue
+            estado_mensaje = msg.value
+            # print(estado_mensaje)
+            # Filtrar mensajes no deseados (por ejemplo, el mensaje OK repetitivo)
+            if "OKOKOKOK" in estado_mensaje:
+                print(f"Mensaje ignorado: {estado_mensaje}")
+                continue
+            partes = estado_mensaje.split("#")
+            taxis = self.load_file(self.taxi_bd)
+            mapa = self.load_file('Mapa.json')
 
-                if len(partes) == 4:  # si todavía no lo ha recogido
-                    taxi_id = int(partes[0])
-                    estado = partes[1]
-                    coor_taxix = int(partes[2])
-                    coor_taxiy = int(partes[3])
+            if len(partes) == 4:
+                taxi_id = int(partes[0])
+                status = partes[1]
+                taxiX = int(partes[2])
+                taxiY = int(partes[3])
 
-                    for taxi in taxis:
-                        if taxi['id'] == taxi_id:
-                            taxi['coordenada_origen'] = {'x': coor_taxix, 'y': coor_taxiy}
-                            self.save_taxis_to_json(self.taxi_bd, taxis)
-
-                    if self.check_taxi_status(taxi_id, estado, taxis):
+                for taxi in taxis:
+                    if taxi['id'] == taxi_id:
+                        taxi['coordenada_origen'] = {'x': taxiX, 'y': taxiY}
                         self.save_taxis_to_json(self.taxi_bd, taxis)
-                        print(f"El taxi {taxi_id} está en estado {estado}")       
-                    else:
-                        print(f"Taxi {taxi_id} no encontrado en el archivo.")
-                else:  # si lo ha recogido
-                    taxi_id = int(partes[0])
-                    estado = partes[1]
-                    coor_taxix = int(partes[2])
-                    coor_taxiy = int(partes[3])
-                    destorec = partes[4]  # destino o recogido
 
-                    for taxi in taxis:
-                        if taxi['id'] == taxi_id:
-                            taxi['coordenada_origen'] = {'x': coor_taxix, 'y': coor_taxiy}
+                if self.update_taxi_status(taxi_id, status, taxis):
+                    self.save_taxis_to_json(self.taxi_bd, taxis)     
+                else:
+                    print(f"Taxi {taxi_id} not registered.")
+            else:
+                taxi_id = int(partes[0])
+                status = partes[1]
+                taxiX = int(partes[2])
+                taxiY = int(partes[3])
+                ward = partes[4]
 
-                            if destorec == "recogido":
-                                taxi['recogido'] = True
-                                taxi['cliente'] = {'x': coor_taxix, 'y': coor_taxiy}
-                                idcliente = taxi['cliente']['id_cliente']
-                                mapa[idcliente] = [coor_taxix, coor_taxiy]
-                            else:
-                                taxi['recogido'] = False
+                for taxi in taxis:
+                    if taxi['id'] == taxi_id:
+                        taxi['coordenada_origen'] = {'x': taxiX, 'y': taxiY}
 
-                            self.save_taxis_to_json(self.taxi_bd, taxis)
-                            self.save_taxis_to_json('Mapa.json', mapa)
-        except Exception as e:
-            print(f"Error al escuchar actualizaciones de taxis: {e}")
-    
+                        if ward == "recogido":
+                            taxi['recogido'] = True
+                            idcliente = taxi['cliente']['id_cliente']
+                            taxi['cliente'] = {'x': taxiX, 'y': taxiY, 'id_cliente': idcliente}
+                            mapa[idcliente] = [taxiX, taxiY]
+                        else:
+                            taxi['recogido'] = False
+
+                        self.save_taxis_to_json(self.taxi_bd, taxis)
+                        self.save_taxis_to_json('Mapa.json', mapa)
+
 
     def listen_customer_services(self):
         try:
             for msg in self.consumer_customer:
 
-                mensaje_cliente = msg.value.decode('utf-8')
+                mensaje_cliente = msg.value
                 print(f"Mensaje recibido del cliente: {mensaje_cliente}")
 
                 servicios = mensaje_cliente.split(" ")
@@ -164,16 +172,19 @@ class ECCentral:
                     response = f"{client}: KO"
 
                 # Enviar la respuesta al customer
-                self.producer_customer.send(TOPIC_RESPUESTAS_TAXIS, value=response.encode('utf-8'))
+                self.producer_customer.send(TOPIC_RESPUESTAS_TAXIS, value=response)
                 self.producer_customer.flush()
                 print(f"Response sent: {response}")
         except Exception as e:
             print(f"Error al escuchar servicios de clientes: {e}")
     
-
+    #ok
     def listen_taxi_end(self):
         try:
             for msg in self.consumer_taxi_end:
+                if msg is None:
+                    continue
+                
                 if msg.offset > self.offset_taxi_end:
                     mensaje = msg.value
                     print(f"el mensaje es {mensaje}")
@@ -206,10 +217,9 @@ class ECCentral:
         except Exception as e:
             print(f"Error al escuchar el fin del servicio del taxi: {e}")
 
-
+    #ok
     def send_coordinates(self, producer, taxi_id, kafka_topic):
         taxis = self.load_file(self.taxi_bd)
-        
         for taxi in taxis:
             if taxi['id'] == taxi_id:
                 coordenada_destino = taxi['coordenada_destino']
@@ -223,7 +233,7 @@ class ECCentral:
                 return True
         return False
 
-
+    #ok
     def get_coordinates(self, destino, client):
         coordinates = self.load_file('Mapa.json')
         if destino in coordinates:
@@ -251,7 +261,7 @@ class ECCentral:
                     coordinates = taxi["coordenada_origen"]
                     taxi['verificado'] = True 
                     
-            print(f"my taxi ID is: {msg} and my coordinates are {coordinates}")
+                    print(f"my taxi ID is: {msg} and my coordinates are {coordinates}")
             
             self.save_taxis_to_json(self.taxi_bd, taxis)
 
@@ -291,29 +301,28 @@ class ECCentral:
     
 
     def actualizar_mapa(self, frame, taxis, ubicaciones, ax, size):
-        ax.clear()  # Limpiar el gráfico actual para redibujar
+        ax.clear()
 
-        # Crear una matriz para los colores de fondo de cada celda (números en lugar de nombres de colores)
+ 
         mapa_colores = np.zeros((size, size))
 
-        # Definir un mapa de colores personalizado
+
         cmap = mcolors.ListedColormap(['white', 'yellow', 'blue', 'green', 'red'])
-        bounds = [0, 1, 2, 3, 4, 5]  # Limites para cada color
+        bounds = [0, 1, 2, 3, 4, 5]  
         norm = mcolors.BoundaryNorm(bounds, cmap.N)
         ubicaciones = self.load_file('Mapa.json')
-        # Colocar los clientes en el mapa (letras minúsculas, fondo amarillo -> valor 1)
+
         for cliente, pos in ubicaciones.items():
-            if cliente.islower():  # Clientes
-                mapa_colores[pos[1] - 1, pos[0] - 1] = 1 # Fondo amarillo para clientes
+            if cliente.islower():  
+                mapa_colores[pos[1] - 1, pos[0] - 1] = 1 
 
-        # Colocar los destinos en el mapa (letras mayúsculas, fondo azul -> valor 2)
+
         for destino, pos in ubicaciones.items():
-            if destino.isupper():  # Destinos
-                mapa_colores[pos[1] - 1, pos[0] - 1] = 2  # Fondo azul para destinos
+            if destino.isupper(): 
+                mapa_colores[pos[1] - 1, pos[0] - 1] = 2  
 
-        # Simulación: actualizando posiciones de taxis para la animación
-        # Puedes reemplazar esta lógica para hacer que se lea desde un archivo o una API
-        taxisact = self.load_file('taxis.json')
+
+        taxisact = self.load_file(self.taxi_bd)
         xtaxi1 = None
         ytaxi1 = None
         xtaxi2 = None
@@ -335,54 +344,54 @@ class ECCentral:
                 taxi['coordenada_origen']['x'] = xtaxi2
                 taxi['coordenada_origen']['y'] = ytaxi2
 
-        # Colocar los taxis en el mapa (estado verde -> valor 3, rojo -> valor 4)
+
         
         for taxi in taxisact:
             taxi_pos = taxi['coordenada_origen']
-            estado = taxi['estado']
-        #############################################
-            if estado == "verde":  # Taxis disponibles (verde -> valor 3)
+            status = taxi['estado']
+
+            if status == "verde":  
                 mapa_colores[taxi_pos['y'] - 1, taxi_pos['x'] - 1] = 3
-            else:  # Taxis ocupados (rojo -> valor 4)
+            else: 
                 mapa_colores[taxi_pos['y'] - 1, taxi_pos['x'] - 1] = 4
 
     
-        # Crear el mapa de colores con casillas alineadas
+
         ax.imshow(mapa_colores, cmap=cmap, norm=norm, extent=[0, size, 0, size], origin='lower')
 
-        # Colocar el texto de las identificaciones después de colocar las casillas
-        # Colocar identificaciones de clientes
+
+
     
         for cliente, pos in ubicaciones.items():
             if cliente.islower():
                 ax.text(pos[0] - 0.5, pos[1] - 0.5, cliente, color='black', fontsize=12, ha='left', va='center')           
 
-        # Colocar identificaciones de destinos
+
         for destino, pos in ubicaciones.items():
             if destino.isupper():
                 ax.text(pos[0] - 0.5, pos[1] - 0.5, destino, color='black', fontsize=12, ha='center', va='center')
 
-        # Colocar identificaciones de taxis
+
         for taxi in taxisact:
             taxi_pos = taxi['coordenada_origen']
             if taxi['recogido'] == True:
-                taxi_id = str(taxi['id']) #+"-" + taxi['cliente']['id_cliente']
+                taxi_id = str(taxi['id'])
             else:
                 taxi_id = taxi['id']
             ax.text(taxi_pos['x'] - 0.5, taxi_pos['y'] - 0.5, str(taxi_id), color='black', fontsize=12, ha='right', va='center')
 
-        # Configurar los ejes para que vayan de 1 a 20
+
         ax.set_xticks(np.arange(0, size))
         ax.set_yticks(np.arange(0, size))
         ax.set_xticklabels(np.arange(1, size + 1))
         ax.set_yticklabels(np.arange(1, size + 1))
 
-        # Configurar cuadrícula
+
         ax.grid(True, color='black', linestyle='-', linewidth=0.5)
         ax.set_xlim(0, size)
         ax.set_ylim(0, size)
 
-        plt.gca().invert_yaxis()  # Invertir el eje Y para que (1,1) esté en la esquina inferior izquierda
+        plt.gca().invert_yaxis() 
 
 
     def iniciar_grafico(self, taxis, ubicaciones):
@@ -393,7 +402,7 @@ class ECCentral:
 
 
 
-#------------------------------------------------------------------------------------------
+
     
     def start(self):
         server.listen()
@@ -407,7 +416,7 @@ class ECCentral:
 
             thread = threading.Thread(target=self.socket_taxi, args=(conn, addr))
             thread.start()
-            print(f"[CONEXIONES ACTIVAS] {threading.active_count() - 1}")
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
@@ -420,7 +429,7 @@ if __name__ == "__main__":
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((socket.gethostbyname(socket.gethostname()), central.port))
 
-    taxis = central.load_file('taxis.json')
+    taxis = central.load_file(central.taxi_bd)
     ubis = central.load_file('Mapa.json')
 
 
@@ -432,6 +441,6 @@ if __name__ == "__main__":
     thread_socket.start()
     kafka_thread_end_taxi = threading.Thread(target=central.listen_taxi_end)
     kafka_thread_end_taxi.start()
-        # Iniciar el gráfico en el hilo principal
+
         
     central.iniciar_grafico(taxis, ubis)
