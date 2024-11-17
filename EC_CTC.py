@@ -4,23 +4,24 @@ import threading
 import time
 import requests
 from flask import Flask, jsonify, request
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import sys
-
-# (Opcional) Para una mejor experiencia en la CLI
-try:
-    from PyInquirer import prompt
-except ImportError:
-    print("PyInquirer no está instalado. Instalándolo ahora...")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyInquirer"])
-    from PyInquirer import prompt
+import logging  # Importar el módulo logging
+from PyInquirer import prompt
 
 app = Flask(__name__)
 
+# Configuración de logging
+logging.basicConfig(
+    filename='ec_ctc.log',  # Archivo donde se guardarán los logs
+    level=logging.INFO,     # Nivel de registro
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S%z'
+)
+
 # Configuración de OpenWeather API
-OPENWEATHER_API_KEY = 'TU_API_KEY_AQUI'  # Reemplaza con tu API Key de OpenWeather
+OPENWEATHER_API_KEY = '63c3564d0d89fe14d5bdca8101f9e00d'  # Reemplaza con tu API Key de OpenWeather
 DEFAULT_CITY = 'Madrid'  # Ciudad por defecto
 TEMPERATURE_THRESHOLD = 0  # °C
 
@@ -37,13 +38,13 @@ def get_current_temperature(city):
         data = response.json()
         if response.status_code == 200:
             temp = data['main']['temp']
-            print(f"[{datetime.utcnow().isoformat()}] Temperatura en {city}: {temp}°C")
+            logging.info(f"Temperatura en {city}: {temp}°C")  # Reemplazo de print() por logging.info()
             return temp
         else:
-            print(f"[{datetime.utcnow().isoformat()}] Error al obtener la temperatura: {data.get('message', 'Error desconocido')}")
+            logging.error(f"Error al obtener la temperatura: {data.get('message', 'Error desconocido')}")  # Reemplazo de print() por logging.error()
             return None
     except Exception as e:
-        print(f"[{datetime.utcnow().isoformat()}] Excepción al obtener la temperatura: {e}")
+        logging.error(f"Excepción al obtener la temperatura: {e}")  # Reemplazo de print() por logging.error()
         return None
 
 def determine_traffic_status(temp):
@@ -60,7 +61,11 @@ def get_traffic_status_route():
     Endpoint para obtener el estado actual del tráfico.
     """
     global traffic_status
-    return jsonify({'status': traffic_status, 'city': current_city, 'timestamp': datetime.utcnow().isoformat()}), 200
+    return jsonify({
+        'status': traffic_status,
+        'city': current_city,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    }), 200
 
 @app.route('/set_city', methods=['POST'])
 def set_city():
@@ -72,7 +77,7 @@ def set_city():
     if not data or 'city' not in data:
         return jsonify({'error': 'Se requiere el nombre de la ciudad'}), 400
     new_city = data['city']
-    print(f"[{datetime.utcnow().isoformat()}] Cambiando ciudad de {current_city} a {new_city}")
+    logging.info(f"Cambiando ciudad de {current_city} a {new_city}")  # Reemplazo de print() por logging.info()
     current_city = new_city
     # Actualizar el estado del tráfico inmediatamente después de cambiar la ciudad
     temp = get_current_temperature(current_city)
@@ -87,7 +92,7 @@ def run_flask():
 
 def cli_menu():
     """
-    Menú de línea de comandos para cambiar la ciudad.
+    Menú de línea de comandos para interactuar con el usuario.
     """
     global current_city, traffic_status
     while True:
@@ -99,6 +104,7 @@ def cli_menu():
                 'choices': [
                     'Cambiar ciudad',
                     'Ver estado actual del tráfico',
+                    'Ver temperatura actual',  # Nueva opción añadida
                     'Salir'
                 ]
             }
@@ -126,7 +132,7 @@ def cli_menu():
                     response = requests.post('http://localhost:5001/set_city', json={'city': new_city})
                     if response.status_code == 200:
                         data = response.json()
-                        print(f"Ciudad cambiada a {data['city']}. Estado del tráfico: {data['new_status']}")
+                        print(f"Ciudad cambiada a {data['message']}. Estado del tráfico: {data['new_status']}")
                     else:
                         data = response.json()
                         print(f"Error al cambiar la ciudad: {data.get('error', 'Error desconocido')}")
@@ -139,17 +145,21 @@ def cli_menu():
                     data = response.json()
                     print(f"Ciudad: {data['city']}")
                     print(f"Estado del Tráfico: {data['status']}")
-                    print(f"Última actualización: {data['timestamp']}")
+                    # Se ha eliminado la impresión del timestamp
+                    # print(f"Última actualización: {data['timestamp']}")
                 else:
                     print(f"Error al obtener el estado del tráfico: {response.text}")
             except Exception as e:
                 print(f"Error al comunicar con el servidor: {e}")
+        elif action == 'Ver temperatura actual':  # Manejo de la nueva opción
+            temp = get_current_temperature(current_city)
+            if temp is not None:
+                print(f"Temperatura actual en {current_city}: {temp}°C")
+            else:
+                print("No se pudo obtener la temperatura actual.")
         elif action == 'Salir':
             print("Saliendo del menú de EC_CTC...")
-            # Detener el servidor Flask al salir
-            func = request.environ.get('werkzeug.server.shutdown')
-            if func:
-                func()
+            print("Cerrando aplicación...")
             break
         time.sleep(1)
 
@@ -162,9 +172,20 @@ def periodic_temperature_check():
         temp = get_current_temperature(current_city)
         new_status = determine_traffic_status(temp)
         if new_status != traffic_status:
-            print(f"[{datetime.utcnow().isoformat()}] Estado del tráfico cambiado de {traffic_status} a {new_status}")
+            logging.info(f"Estado del tráfico cambiado de {traffic_status} a {new_status}")  # Reemplazo de print() por logging.info()
             traffic_status = new_status
         time.sleep(10)
+
+@app.route('/shutdown', methods=['POST'])
+def shutdown():
+    """
+    Endpoint para detener el servidor Flask.
+    """
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func is None:
+        return jsonify({'error': 'No se puede cerrar el servidor'}), 500
+    func()
+    return jsonify({'message': 'Servidor cerrado'}), 200
 
 if __name__ == '__main__':
     # Verificar que la API Key de OpenWeather haya sido proporcionada
