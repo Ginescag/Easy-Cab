@@ -84,6 +84,32 @@ def set_city():
     traffic_status = determine_traffic_status(temp)
     return jsonify({'message': f'Ciudad actualizada a {current_city}', 'new_status': traffic_status}), 200
 
+@app.route('/get_temperature', methods=['GET'])
+def get_temperature_route():
+    """
+    Endpoint para obtener la temperatura actual de la ciudad.
+    """
+    temp = get_current_temperature(current_city)
+    if temp is not None:
+        return jsonify({
+            'city': current_city,
+            'temperature': temp,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }), 200
+    else:
+        return jsonify({'error': 'No se pudo obtener la temperatura'}), 500
+
+@app.route('/shutdown', methods=['POST'])
+def shutdown():
+    """
+    Endpoint para detener el servidor Flask.
+    """
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func is None:
+        return jsonify({'error': 'No se puede cerrar el servidor'}), 500
+    func()
+    return jsonify({'message': 'Servidor cerrado'}), 200
+
 def run_flask():
     """
     Ejecuta el servidor Flask.
@@ -152,14 +178,25 @@ def cli_menu():
             except Exception as e:
                 print(f"Error al comunicar con el servidor: {e}")
         elif action == 'Ver temperatura actual':  # Manejo de la nueva opción
-            temp = get_current_temperature(current_city)
-            if temp is not None:
-                print(f"Temperatura actual en {current_city}: {temp}°C")
-            else:
-                print("No se pudo obtener la temperatura actual.")
+            try:
+                response = requests.get('http://localhost:5001/get_temperature')
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"Temperatura actual en {data['city']}: {data['temperature']}°C")
+                    print(f"Timestamp: {data['timestamp']}")
+                else:
+                    data = response.json()
+                    print(f"Error al obtener la temperatura: {data.get('error', 'Error desconocido')}")
+            except Exception as e:
+                print(f"Error al comunicar con el servidor: {e}")
         elif action == 'Salir':
             print("Saliendo del menú de EC_CTC...")
             print("Cerrando aplicación...")
+            # Opcional: Detener el servidor Flask antes de salir
+            try:
+                requests.post('http://localhost:5001/shutdown')
+            except Exception:
+                pass
             break
         time.sleep(1)
 
@@ -175,17 +212,6 @@ def periodic_temperature_check():
             logging.info(f"Estado del tráfico cambiado de {traffic_status} a {new_status}")  # Reemplazo de print() por logging.info()
             traffic_status = new_status
         time.sleep(10)
-
-@app.route('/shutdown', methods=['POST'])
-def shutdown():
-    """
-    Endpoint para detener el servidor Flask.
-    """
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func is None:
-        return jsonify({'error': 'No se puede cerrar el servidor'}), 500
-    func()
-    return jsonify({'message': 'Servidor cerrado'}), 200
 
 if __name__ == '__main__':
     # Verificar que la API Key de OpenWeather haya sido proporcionada
