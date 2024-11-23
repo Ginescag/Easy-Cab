@@ -15,7 +15,6 @@ logging.basicConfig(
 )
 
 BASE_URL = 'http://localhost:5001'
-CHECK_INTERVAL = 10  # Segundos
 
 def get_traffic_status():
     """
@@ -27,26 +26,41 @@ def get_traffic_status():
     data = response.json()
     status = data.get('status', 'Desconocido')
     city = data.get('city', 'Desconocida')
-    timestamp = data.get('timestamp', 'Desconocido')
-    logging.info(f"Estado del tráfico: {status} en {city} (Última actualización: {timestamp})")
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Estado del tráfico: {status} en {city} (Última actualización UTC: {timestamp})")
+    logging.info(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Estado del tráfico: {status} en {city}")
+    return status, city
+
 
 def main():
     print("Iniciando test.py para monitorear el estado del tráfico cada 10 segundos...")
     logging.info("test.py iniciado para monitorear el estado del tráfico.")
     try:
+        status, city = get_traffic_status()
         while True:
             try:
-                get_traffic_status()
+                prevStatus = status
+                prevCity  = city
+                status, city = get_traffic_status()
+
+                if prevCity != city:
+                    print(f"CIUDAD CAMBIADA DE {prevCity} A {city}")
+
+                if prevStatus == 'OK' and status == 'KO':
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Estado del tráfico: {status} en {city}. VOLVER A LA BASE!")
+                    #LOGICA DE LOS TAXIS VUELTA A BASE
+
+                elif prevStatus == 'KO' and status == 'OK':
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Estado del tráfico: {status} en {city}. REANUDAR LA MARCHA!")
+                    #LOGICA VUELTA A HACER PEDIDOS
+
             except requests.exceptions.RequestException as e:
                 # Manejo de excepciones relacionadas con la solicitud HTTP
                 logging.error(f"Excepción al obtener el estado del tráfico: {e}")
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Excepción al obtener el estado del tráfico: {e}")
                 print("El servidor no está disponible. Saliendo del programa.")
                 sys.exit(1)  # Termina el programa con un código de salida no cero
-            time.sleep(CHECK_INTERVAL)
+            time.sleep(10)
+    
     except KeyboardInterrupt:
-        # Manejo de la interrupción del usuario (Ctrl+C)
         print("\nDeteniendo test.py...")
         logging.info("test.py detenido por el usuario.")
 

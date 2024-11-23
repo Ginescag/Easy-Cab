@@ -2,6 +2,10 @@ import socket
 import threading
 import sys
 import json
+import time
+import logging
+from datetime import datetime
+import requests
 from kafka import KafkaProducer, KafkaConsumer
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,15 +19,20 @@ TOPIC_ASIGNACION_TAXIS = 'asignacion-taxis' #produce una respuesta para los taxi
 TOPIC_TAXI_UPDATES = 'taxi_updates' #consume para obtener el estado y posicion de los taxis
 TOPIC_TAXI_END_CENTRAL = 'taxi-end-central' #envia a central el fin de servicio 
 
-#EN SOCKET_TAXI NO ME DA ERROR SI LE PASO UN TAXI_ID QUE NO ESTA EN TAXIS.JSON
+logging.basicConfig(
+    filename='test.log',  # Archivo donde se guardarán los logs
+    level=logging.INFO,    # Nivel de registro
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S%z'
+)
 
 class ECCentral:
-    def __init__(self, port, kafka_ip_port, taxi_bd):
+    def __init__(self, port, kafka_ip_port, taxi_bd, CTC_ipPort):
         self.port = int(port)
         self.kafka_ip_port = kafka_ip_port
         self.taxi_bd = taxi_bd
         self.offset_taxi_end = -1
-        
+        self.ctcApi = 'http://' + CTC_ipPort
         self.kafka_consumer_taxi = KafkaConsumer(
             TOPIC_TAXI_UPDATES, 
             bootstrap_servers=self.kafka_ip_port,
@@ -57,9 +66,6 @@ class ECCentral:
             value_deserializer=lambda v: json.loads(v.decode('utf-8'))
         )
 
-        
-  #------------------socketAUTH--------------------------------------------------------------------------  
-    
     #ok
     def save_taxis_to_json(self, filename, taxis):
         try:    
@@ -222,6 +228,21 @@ class ECCentral:
         taxis = self.load_file(self.taxi_bd)
         for taxi in taxis:
             if taxi['id'] == taxi_id:
+                coordenada_destino = taxi['coordenada_destino']
+                cliente = taxi['cliente']
+                mensaje = f"Taxi has to go to#{taxi_id}#{coordenada_destino['x']}#{coordenada_destino['y']}#{cliente['x']}#{cliente['y']}#{cliente['id_cliente']}"
+                print(f"sent to EC_DE: {mensaje}")
+                
+                # Enviar mensaje a EC_DE a través de Kafka
+                producer.send(kafka_topic, value=mensaje)
+                producer.flush()
+                return True
+        return False
+  
+    
+    def return_to_base(self, producer, taxi_id, kafka_topic):
+        taxis = self.load_file(self.taxi_bd)
+        for taxi in taxis:
                 coordenada_destino = taxi['coordenada_destino']
                 cliente = taxi['cliente']
                 mensaje = f"Taxi has to go to#{taxi_id}#{coordenada_destino['x']}#{coordenada_destino['y']}#{cliente['x']}#{cliente['y']}#{cliente['id_cliente']}"
@@ -401,9 +422,54 @@ class ECCentral:
         plt.show()
 
 
+    def get_traffic_status(self):
+        """
+        Realiza una solicitud GET al endpoint /get_traffic_status y muestra el estado del tráfico.
+        """
+        response = requests.get(self.ctcApi)
+        response.raise_for_status()  # Lanza una excepción para códigos de estado HTTP 4xx/5xx
+        data = response.json()
+        status = data.get('status', 'Desconocido')
+        city = data.get('city', 'Desconocida')
+        logging.info(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Estado del tráfico: {status} en {city}")
+        return status, city
 
 
-    
+    def periodic_city_status(self):
+        print("Iniciando test.py para monitorear el estado del tráfico cada 10 segundos...")
+        logging.info("test.py iniciado para monitorear el estado del tráfico.")
+        try:
+            status, city = self.get_traffic_status()
+            while True:
+                try:
+                    prevStatus = status
+                    prevCity  = city
+                    status, city = self.get_traffic_status()
+
+                    if prevCity != city:
+                        print(f"CIUDAD CAMBIADA DE {prevCity} A {city}")
+
+                    if prevStatus == 'OK' and status == 'KO':
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Estado del tráfico: {status} en {city}. VOLVER A LA BASE!")
+                        #LOGICA DE LOS TAXIS VUELTA A BASE
+
+                    elif prevStatus == 'KO' and status == 'OK':
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Estado del tráfico: {status} en {city}. REANUDAR LA MARCHA!")
+                        #LOGICA VUELTA A HACER PEDIDOS
+
+                except requests.exceptions.RequestException as e:
+                    # Manejo de excepciones relacionadas con la solicitud HTTP
+                    logging.error(f"Excepción al obtener el estado del tráfico: {e}")
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Excepción al obtener el estado del tráfico: {e}")
+                    print("El servidor no está disponible. Saliendo del programa.")
+                    sys.exit(1)  # Termina el programa con un código de salida no cero
+                time.sleep(10)
+        
+        except KeyboardInterrupt:
+            print("\nDeteniendo test.py...")
+            logging.info("test.py detenido por el usuario.")
+
+
     def start(self):
         server.listen()
         print(f"[LISTENING] Servidor a la escucha en el puerto {self.port}")
@@ -417,15 +483,14 @@ class ECCentral:
             thread = threading.Thread(target=self.socket_taxi, args=(conn, addr))
             thread.start()
 
-
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print('USAGE: EC_Central.py <CENTRAL_PORT> <KAFKA_IP_PORT> <taxis.json>')
+    if len(sys.argv) != 5:
+        print('USAGE: EC_Central.py <CENTRAL_PORT> <KAFKA_IP_PORT> <taxis.json> <CTC_IP:PORT>')
         sys.exit(1)
 
     
     # Parámetros de ejemplo, deben ser ajustados según los argumentos de línea de comandos
-    central = ECCentral(sys.argv[1], sys.argv[2], sys.argv[3])
+    central = ECCentral(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((socket.gethostbyname(socket.gethostname()), central.port))
 
