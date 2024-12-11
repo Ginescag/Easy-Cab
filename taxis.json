@@ -14,6 +14,7 @@
         "disponible": true,
         "verificado": true,
         "recogido": false,
+        "returning_to_base": false,
         "cliente": {
             "x": null,
             "y": null,
@@ -33,8 +34,9 @@
         },
         "estado": "verde",
         "disponible": true,
-        "verificado": false,
+        "verificado": true,
         "recogido": false,
+        "returning_to_base": false,
         "cliente": {
             "id_cliente": "",
             "x": null,

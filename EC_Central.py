@@ -238,21 +238,6 @@ class ECCentral:
                 producer.flush()
                 return True
         return False
-  
-    
-    def return_to_base(self, producer, taxi_id, kafka_topic):
-        taxis = self.load_file(self.taxi_bd)
-        for taxi in taxis:
-                coordenada_destino = taxi['coordenada_destino']
-                cliente = taxi['cliente']
-                mensaje = f"Taxi has to go to#{taxi_id}#{coordenada_destino['x']}#{coordenada_destino['y']}#{cliente['x']}#{cliente['y']}#{cliente['id_cliente']}"
-                print(f"sent to EC_DE: {mensaje}")
-                
-                # Enviar mensaje a EC_DE a través de Kafka
-                producer.send(kafka_topic, value=mensaje)
-                producer.flush()
-                return True
-        return False
 
     #ok
     def get_coordinates(self, destino, client):
@@ -264,7 +249,7 @@ class ECCentral:
             print(f"Client coordinates are {clientXpos}, {clientYpos}")
         return clientXpos, clientYpos, destX, destY
     
-
+    #ok
     def socket_taxi(self, conn, addr):
         print(f"[NEW CONN] {addr} connected.")
     
@@ -295,7 +280,7 @@ class ECCentral:
         
         conn.close()
 
-
+    #ok
     def check_taxi_availability(self, destino, client):
         taxis = self.load_file(self.taxi_bd)
 
@@ -320,7 +305,7 @@ class ECCentral:
         print("No available taxis.")
         return False
     
-
+    #ok
     def actualizar_mapa(self, frame, taxis, ubicaciones, ax, size):
         ax.clear()
 
@@ -414,14 +399,15 @@ class ECCentral:
 
         plt.gca().invert_yaxis() 
 
-
+    #ok
     def iniciar_grafico(self, taxis, ubicaciones):
         fig, ax = plt.subplots()
         size = 20
         ani = FuncAnimation(fig, self.actualizar_mapa, fargs=(taxis, ubicaciones, ax, size), interval=1000, cache_frame_data=False)
         plt.show()
 
-
+#------------------------------------NEW RELEASE---------------------------------------------
+    #ok
     def get_traffic_status(self):
         """
         Realiza una solicitud GET al endpoint /get_traffic_status y muestra el estado del tráfico.
@@ -434,7 +420,7 @@ class ECCentral:
         logging.info(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Estado del tráfico: {status} en {city}")
         return status, city
 
-
+    #ok?
     def periodic_city_status(self):
         print("Iniciando test.py para monitorear el estado del tráfico cada 10 segundos...")
         logging.info("test.py iniciado para monitorear el estado del tráfico.")
@@ -470,6 +456,54 @@ class ECCentral:
             logging.info("test.py detenido por el usuario.")
 
 
+    def return_taxis_to_base(self):
+        """
+        Envía un comando a todos los taxis para que regresen a la base.
+        Si un taxi está en medio de un servicio, marca que debe regresar a la base una vez finalizado el servicio.
+        """
+        try:
+            taxis = self.load_file(self.taxi_bd)
+            cambios = False  # Flag para detectar si hubo cambios en el JSON
+
+            for taxi in taxis:
+                if taxi["estado"] != "KO":  # Solo procesar taxis que no están ya en estado KO
+                    if taxi["disponible"]:
+                        # Establecer coordenadas de destino a la base
+                        taxi['coordenada_destino']['x'] = 1
+                        taxi['coordenada_destino']['y'] = 1
+                        taxi['coordenada_destino']['id'] = "BASE"
+                        
+                        # Enviar comando para regresar a la base
+                        success = self.send_coordinates(
+                            self.producer_taxicommands,
+                            taxi['id'],
+                            TOPIC_ASIGNACION_TAXIS
+                        )
+                        if success:
+                            print(f"Enviado comando de regreso a base al Taxi {taxi['id']}.")
+                            logging.info(f"Enviado comando de regreso a base al Taxi {taxi['id']}.")
+                            cambios = True
+                    else:
+                        # Taxi está en servicio, marcar para regresar después de finalizar
+                        if not taxi.get("returning_to_base", False):
+                            taxi["returning_to_base"] = True
+                            print(f"Taxi {taxi['id']} en servicio. Marcado para regresar a la base al finalizar el servicio.")
+                            logging.info(f"Taxi {taxi['id']} en servicio. Marcado para regresar a la base al finalizar el servicio.")
+                            cambios = True
+
+            if cambios:
+                self.save_taxis_to_json(self.taxi_bd, taxis)
+                print("Estado de los taxis actualizado para regresar a la base.")
+                logging.info("Estado de los taxis actualizado para regresar a la base.")
+            else:
+                print("No se realizaron cambios en los taxis. Todos ya están regresando a la base o en estado KO.")
+                logging.info("No se realizaron cambios en los taxis. Todos ya están regresando a la base o en estado KO.")
+
+        except Exception as e:
+            print(f"Error en return_taxis_to_base: {e}")
+            logging.error(f"Error en return_taxis_to_base: {e}")
+#--------------------------------------------------------------------------------------------------------
+    #ok
     def start(self):
         server.listen()
         print(f"[LISTENING] Servidor a la escucha en el puerto {self.port}")
