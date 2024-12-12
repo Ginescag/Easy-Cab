@@ -23,7 +23,7 @@ TOPIC_TAXI_END_CENTRAL = 'taxi-end-central' #envia a central el fin de servicio
 app = Flask(__name__)
 
 logging.basicConfig(
-    filename='test.log',  # Archivo donde se guardarán los logs
+    filename='LOGS/central.log',  # Archivo donde se guardarán los logs
     level=logging.INFO,    # Nivel de registro
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%dT%H:%M:%S%z'
@@ -309,7 +309,8 @@ class ECCentral:
                 return True  
         print("No available taxis.")
         return False
-    
+
+#--------------------------DEPRECATED GRAPHICS---------------------------   
     #ok
     def actualizar_mapa(self, frame, taxis, ubicaciones, ax, size):
         ax.clear()
