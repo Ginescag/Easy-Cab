@@ -1,3 +1,6 @@
+para el ENV:
+
+
 CLIENTES:
 
 python .\EC_Customer.py 127.0.0.1:9092 d .\Customer_services.json

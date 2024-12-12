@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.colors as mcolors
 from matplotlib.animation import FuncAnimation
+from flask import Flask, jsonify, render_template
 
 # Constantes de los tópicos de Kafka
 TOPIC_SOLICITUDES_TAXIS = 'solicitudes-taxis' #consume solicitudes de clientes para que les recojan
@@ -18,6 +19,8 @@ TOPIC_RESPUESTAS_TAXIS = 'respuestas-taxis' #produce una respuesta para los clie
 TOPIC_ASIGNACION_TAXIS = 'asignacion-taxis' #produce una respuesta para los taxis cuando se le asigna un cliente
 TOPIC_TAXI_UPDATES = 'taxi_updates' #consume para obtener el estado y posicion de los taxis
 TOPIC_TAXI_END_CENTRAL = 'taxi-end-central' #envia a central el fin de servicio 
+
+app = Flask(__name__)
 
 logging.basicConfig(
     filename='test.log',  # Archivo donde se guardarán los logs
@@ -27,12 +30,14 @@ logging.basicConfig(
 )
 
 class ECCentral:
-    def __init__(self, port, kafka_ip_port, taxi_bd, CTC_ipPort):
+    def __init__(self, port, kafka_ip_port, taxi_bd, CTC_ipPort, front_port):
         self.port = int(port)
         self.kafka_ip_port = kafka_ip_port
         self.taxi_bd = taxi_bd
         self.offset_taxi_end = -1
         self.ctcApi = 'http://' + CTC_ipPort
+        self.front_port = int(front_port)
+        
         self.kafka_consumer_taxi = KafkaConsumer(
             TOPIC_TAXI_UPDATES, 
             bootstrap_servers=self.kafka_ip_port,
@@ -502,6 +507,31 @@ class ECCentral:
         except Exception as e:
             print(f"Error en return_taxis_to_base: {e}")
             logging.error(f"Error en return_taxis_to_base: {e}")
+
+
+#FRONT/GRAPHICS
+    @app.route('/')
+    def index():
+        return render_template('map.html')
+
+    @app.route('/get_taxis')
+    def get_taxis():
+        with open('taxis.json') as f:
+            taxis = json.load(f)
+        return jsonify(taxis)
+
+    @app.route('/get_map')
+    def get_map():
+        with open('mapa.json') as f:
+            mapa = json.load(f)
+        return jsonify(mapa)
+    
+    def startFrontGraphics(self):
+        log = logging.getLogger('werkzeug')
+        log.setLevel(logging.ERROR)  # Show only errors
+        print(f"Starting server at {socket.gethostbyname(socket.gethostname())}:{self.front_port}")
+        app.run(host = socket.gethostbyname(socket.gethostname()), port = self.front_port)
+
 #--------------------------------------------------------------------------------------------------------
     #ok
     def start(self):
@@ -517,14 +547,16 @@ class ECCentral:
             thread = threading.Thread(target=self.socket_taxi, args=(conn, addr))
             thread.start()
 
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 5:
-        print('USAGE: EC_Central.py <CENTRAL_PORT> <KAFKA_IP_PORT> <taxis.json> <CTC_IP:PORT>')
+    if len(sys.argv) != 6:
+        print('USAGE: EC_Central.py <CENTRAL_PORT> <KAFKA_IP_PORT> <taxis.json> <CTC_IP:PORT> <WEB PORT>')
         sys.exit(1)
 
     
     # Parámetros de ejemplo, deben ser ajustados según los argumentos de línea de comandos
-    central = ECCentral(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+    central = ECCentral(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((socket.gethostbyname(socket.gethostname()), central.port))
 
@@ -541,5 +573,6 @@ if __name__ == "__main__":
     kafka_thread_end_taxi = threading.Thread(target=central.listen_taxi_end)
     kafka_thread_end_taxi.start()
 
-        
-    central.iniciar_grafico(taxis, ubis)
+    #GRAFICOS ANTIGUOS   
+    #central.iniciar_grafico(taxis, ubis)
+    central.startFrontGraphics()
