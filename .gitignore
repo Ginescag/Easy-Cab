@@ -97,7 +97,7 @@ venv.bak/
 .aws/
 
 # dotenv environment variables file
-.env
+
 
 # Pytest
 .pytest_cache/

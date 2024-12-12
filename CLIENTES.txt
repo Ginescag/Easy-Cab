@@ -21,4 +21,6 @@ python .\EC_DE.py 127.0.0.1 5000 127.0.0.1:9092 1488 1
 
 python .\EC_S.py 127.0.0.1 1488
 
-   
+GENERAR CERTIFICADOS:
+
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
