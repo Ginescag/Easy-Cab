@@ -7,22 +7,41 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 import datetime
+import requests
+import sys
+import socket
 
 app = Flask(__name__)
 
-TAXIS_FILE = 'taxis.json'
+EC_CENTRAL_URL = ""
 
-# Helper function to load taxis from the file
-def load_taxis():
-    if os.path.exists(TAXIS_FILE):
-        with open(TAXIS_FILE, 'r') as f:
-            return json.load(f)
-    return []
-
-# Helper function to save taxis to the file
-def save_taxis(taxis):
-    with open(TAXIS_FILE, 'w') as f:
-        json.dump(taxis, f, indent=4)
+def get_taxis_from_central():
+    """
+    Obtener el JSON actual de taxis desde EC_Central.
+    """
+    try:
+        response = requests.get(f"{EC_CENTRAL_URL}/get_all_taxis")
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Error al obtener taxis de EC_Central: {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error al conectarse a EC_Central: {e}")
+        return None
+    
+def update_taxis_in_central(taxis):
+    """
+    Enviar el JSON actualizado de taxis a EC_Central.
+    """
+    try:
+        response = requests.post(f"{EC_CENTRAL_URL}/update_taxis", json=taxis)
+        if response.status_code == 200:
+            print("Taxis actualizados en EC_Central correctamente.")
+        else:
+            print(f"Error al actualizar taxis en EC_Central: {response.text}")
+    except Exception as e:
+        print(f"Error al conectarse a EC_Central: {e}")
 
 def generate_certificates():
     """
@@ -79,7 +98,7 @@ def register_taxi():
     if not data or 'id' not in data:
         return jsonify({'error': 'Taxi ID is required'}), 400
 
-    taxis = load_taxis()
+    taxis = get_taxis_from_central()
     taxi_id = data['id']
 
     # Check if taxi is already registered
@@ -99,14 +118,14 @@ def register_taxi():
         "cliente": {"x": None, "y": None, "id_cliente": ""}
     }
     taxis.append(new_taxi)
-    save_taxis(taxis)
+    update_taxis_in_central(taxis)
 
     return jsonify({'message': f'Taxi {taxi_id} registered successfully'}), 201
 
 @app.route('/deregister_taxi/<int:taxi_id>', methods=['DELETE'])
 def deregister_taxi(taxi_id):
     """Endpoint to deregister a taxi."""
-    taxis = load_taxis()
+    taxis = get_taxis_from_central()
 
     # Check if taxi exists
     taxi = next((taxi for taxi in taxis if taxi['id'] == taxi_id), None)
@@ -115,21 +134,38 @@ def deregister_taxi(taxi_id):
 
     # Remove the taxi
     taxis.remove(taxi)
-    save_taxis(taxis)
+    update_taxis_in_central(taxis)
 
     return jsonify({'message': f'Taxi {taxi_id} deregistered successfully'}), 200
 
 @app.route('/is_registered/<int:taxi_id>', methods=['GET'])
 def is_registered(taxi_id):
     """Endpoint to check if a taxi is registered."""
-    taxis = load_taxis()
+    taxis = get_taxis_from_central()
     if any(taxi['id'] == taxi_id for taxi in taxis):
         return jsonify({'registered': True}), 200
     return jsonify({'registered': False}), 404
 
 if __name__ == '__main__':
+        # Validar argumentos
+    if len(sys.argv) != 3:
+        print("Usage: python EC_Registry.py <IP_CENTRAL> <PORT_CENTRAL> [<PORT_REGISTRY>]")
+        sys.exit(1)
+
+    # Obtener los argumentos
+    central_ip = sys.argv[1]
+    central_port = sys.argv[2]
+    registry_port = int(sys.argv[3])
+    registry_ip = socket.gethostbyname(socket.gethostname())
+
+    # Configurar la URL de EC_Central
+    EC_CENTRAL_URL = f"http://{central_ip}:{central_port}"
+    
     # Generar certificados si no existen
     generate_certificates()
+    
+    print(f"registry API working on {registry_ip}:{registry_port} sending and getting bd data from central with API at {EC_CENTRAL_URL}")
+    print()
 
     # Ensure HTTPS by running the app with SSL certificates
-    app.run(host='0.0.0.0', port=5002, ssl_context=('cert.pem', 'key.pem'))
+    app.run(host=registry_ip, port=registry_port, ssl_context=('cert.pem', 'key.pem'))

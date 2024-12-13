@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.colors as mcolors
 from matplotlib.animation import FuncAnimation
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
+
 
 # Constantes de los tópicos de Kafka
 TOPIC_SOLICITUDES_TAXIS = 'solicitudes-taxis' #consume solicitudes de clientes para que les recojan
@@ -20,7 +21,7 @@ TOPIC_ASIGNACION_TAXIS = 'asignacion-taxis' #produce una respuesta para los taxi
 TOPIC_TAXI_UPDATES = 'taxi_updates' #consume para obtener el estado y posicion de los taxis
 TOPIC_TAXI_END_CENTRAL = 'taxi-end-central' #envia a central el fin de servicio 
 
-app = Flask(__name__)
+TAXIS_FILE = "taxis.json" #esto no es buen codigo pero es una solucion temporal
 
 logging.basicConfig(
     filename='LOGS/central.log',  # Archivo donde se guardarán los logs
@@ -28,6 +29,52 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%dT%H:%M:%S%z'
 )
+
+app = Flask(__name__)
+
+#FRONT/GRAPHICS
+
+@app.route('/')
+def index():
+    return render_template('map.html')
+
+@app.route('/get_taxis')
+def get_taxis():
+    with open('taxis.json') as f:
+        taxis = json.load(f)
+    return jsonify(taxis)
+
+@app.route('/get_map')
+def get_map():
+    with open('mapa.json') as f:
+        mapa = json.load(f)
+    return jsonify(mapa)
+
+#A BIT OF REGISTRY LOGIC
+
+@app.route('/get_all_taxis', methods=['GET'])
+def get_all_taxis():
+    """Devuelve el JSON actual de taxis."""
+    try:
+        with open(TAXIS_FILE, 'r') as file:
+            taxis = json.load(file)
+    except FileNotFoundError:
+        taxis = []  # Si el archivo no existe, devuelve una lista vacía
+    return jsonify(taxis), 200
+
+@app.route('/update_taxis', methods=['POST'])
+def update_taxis():
+    """Actualiza el JSON de taxis con los datos recibidos."""
+    data = request.get_json()
+    if not isinstance(data, list):
+        return jsonify({'error': 'El formato del JSON no es válido'}), 400
+
+    try:
+        with open(TAXIS_FILE, 'w') as file:
+            json.dump(data, file, indent=4)
+        return jsonify({'message': 'Taxis actualizados correctamente'}), 200
+    except IOError as e:
+        return jsonify({'error': f'Error al guardar los datos: {e}'}), 500
 
 class ECCentral:
     def __init__(self, port, kafka_ip_port, taxi_bd, CTC_ipPort, front_port):
@@ -508,24 +555,6 @@ class ECCentral:
         except Exception as e:
             print(f"Error en return_taxis_to_base: {e}")
             logging.error(f"Error en return_taxis_to_base: {e}")
-
-
-#FRONT/GRAPHICS
-    @app.route('/')
-    def index():
-        return render_template('map.html')
-
-    @app.route('/get_taxis')
-    def get_taxis():
-        with open('taxis.json') as f:
-            taxis = json.load(f)
-        return jsonify(taxis)
-
-    @app.route('/get_map')
-    def get_map():
-        with open('mapa.json') as f:
-            mapa = json.load(f)
-        return jsonify(mapa)
     
     def startFrontGraphics(self):
         log = logging.getLogger('werkzeug')
@@ -547,8 +576,6 @@ class ECCentral:
 
             thread = threading.Thread(target=self.socket_taxi, args=(conn, addr))
             thread.start()
-
-
 
 if __name__ == "__main__":
     if len(sys.argv) != 6:
