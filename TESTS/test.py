@@ -14,7 +14,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%dT%H:%M:%S%z'
 )
 
-BASE_URL = 'http://localhost:5001'
+BASE_URL = 'http://192.168.23.1:6761'
 
 def get_traffic_status():
     """

@@ -5,6 +5,15 @@ import re
 import time
 import json
 from kafka import KafkaConsumer, KafkaProducer
+import urllib3
+import os
+import requests
+from PyInquirer import prompt
+import ssl
+import certifi
+from cryptography.fernet import Fernet
+from dotenv import load_dotenv
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 TOPIC_TAXI_UPDATES = 'taxi_updates' 
@@ -14,10 +23,75 @@ TOPIC_TAXI_END_CENTRAL = 'taxi-end-central'
 FORMAT = 'utf-8'
 HEADER = 64
 
+# Cargar variables de entorno desde .env
+load_dotenv()
+
+def create_ssl_context(cert_path):
+    """Create SSL context with certificate validation"""
+    context = ssl.create_default_context(cafile=cert_path)
+    return context
+
+def register_taxi(taxi_id, registry_url, cert_path):
+    try:
+        context = create_ssl_context(cert_path)
+        response = requests.put(
+            f"{registry_url}/register_taxi",
+            json={"id": int(taxi_id)},
+            verify=cert_path,  # Use certificate for verification
+            headers={'Content-Type': 'application/json'}
+        )
+        print(response.json())
+        return response.status_code == 201
+    except Exception as e:
+        print(f"Error registering taxi: {e}")
+        return False
+
+def deregister_taxi(taxi_id, registry_url, cert_path):
+    try:
+        context = create_ssl_context(cert_path)
+        response = requests.delete(
+            f"{registry_url}/deregister_taxi/{taxi_id}",
+            verify=cert_path,
+            headers={'Content-Type': 'application/json'}
+        )
+        print(response.json())
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Error deregistering taxi: {e}")
+        return False
+
+def show_registry_menu(taxi_id, registry_url, cert_path):
+    questions = [
+        {
+            'type': 'list',
+            'name': 'action',
+            'message': 'What would you like to do?',
+            'choices': [
+                'Register Taxi',
+                'Deregister Taxi', 
+                'Continue without changes'
+            ]
+        }
+    ]
+    
+    action = prompt(questions)['action']
+    
+    if action == 'Register Taxi':
+        if register_taxi(taxi_id, registry_url, cert_path):
+            return True
+        sys.exit(1)
+    elif action == 'Deregister Taxi':
+        if deregister_taxi(taxi_id, registry_url, cert_path):
+            sys.exit(0)
+        sys.exit(1)
+    return True
 
 
 class DigitalEngine:
-    def __init__(self, ec_central_ip, ec_central_port, kafka_ip_port, ec_de_port, taxi_id):
+    def __init__(self, ec_central_ip, ec_central_port, kafka_ip_port, ec_de_port, taxi_id, registry_ip, registry_port, cert_path):
+        # Add certificate path
+        self.cert_path = cert_path
+        self.registry_url = f"https://{registry_ip}:{registry_port}"
         self.ec_central_addr = (ec_central_ip, ec_central_port)
         self.kafka_ip_port = kafka_ip_port
         self.de_addr = (socket.gethostbyname(socket.gethostname()), int(ec_de_port))
@@ -41,6 +115,7 @@ class DigitalEngine:
             auto_offset_reset='latest',
             value_deserializer=lambda v: json.loads(v.decode('utf-8'))
         )
+        self.returning_to_base = False  # Indica si el taxi está regresando a la base
 
 
     def send(self, msg, client):
@@ -80,7 +155,7 @@ class DigitalEngine:
             self.position[1] += 1
         elif self.position[1] > self.goal_position[1]:
             self.position[1] -= 1
-        print(f"{self.position[0], self.position[1]}")
+        print(f"Actualizando posición: {self.position}")
 
     def connect_to_central(self):
         print(f"Establecida conexión en [{client_socket.getsockname()}]")
@@ -112,19 +187,30 @@ class DigitalEngine:
             command = msg.value
             print(f"Command received from Central: {command}")
             auxArr = command.split("#")
-            if len(auxArr) == 7:
+
+            if len(auxArr) >= 2:
+                command_type = auxArr[0]
                 Tid = int(auxArr[1])
-                Gx = int(auxArr[2])
-                Gy = int(auxArr[3])
-                cliX = int(auxArr[4])
-                cliY = int(auxArr[5])
-                self.client_id = auxArr[6]
-                if Tid == int(self.taxi_id):
-                    self.goal_position = [Gx, Gy]
-                    self.client_position = [cliX, cliY]
-                    self.ordered = True
-                    self.arrived = False
-                    print(f"RECOGER AL CLIENTE EN {self.client_position} PARA IR A {self.goal_position}")
+                if Tid == self.taxi_id:
+                    if command_type == "RETURN_TO_BASE":
+                        self.return_to_base()
+                    elif command_type == "RESUME_OPERATIONS":
+                        self.resume_operations()
+                    elif command_type == "Taxi has to go to":
+                        Gx = int(auxArr[2])
+                        Gy = int(auxArr[3])
+                        cliX = int(auxArr[4])
+                        cliY = int(auxArr[5])
+                        self.client_id = auxArr[6]
+                        self.goal_position = [Gx, Gy]
+                        self.client_position = [cliX, cliY]
+                        self.ordered = True
+                        self.arrived = False
+                        print(f"RECOGER AL CLIENTE EN {self.client_position} PARA IR A {self.goal_position}")
+                    else:
+                        print(f"Unknown command: {command_type}")
+            else:
+                print(f"Received unrecognized message format: {command}")
 
     def handle_sensors(self):
         ok = False
@@ -165,13 +251,68 @@ class DigitalEngine:
                 print(f"Error al recibir mensaje del Sensor: {error}") 
                 break
 
+    def resume_operations(self):
+        print("Recibido comando RESUME_OPERATIONS. Reanudando operaciones y cambiando estado a 'OK'.")
+        self.status = 'OK'           # Cambiar el estado a 'OK'
+        self.available = True          # Marcar como disponible
+        self.returning_to_base = False
+        # Notificar a la central del cambio de estado
+        self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#OK#{self.position[0]}#{self.position[1]}")
+        print(f"Taxi {self.taxi_id} disponible para nuevos servicios.")
+
+    def return_to_base(self):
+        print("Recibido comando RETURN_TO_BASE. Regresando a la base.")
+        self.goal_position = [1, 1]       # Establecer la posición objetivo en (1,1)
+        self.available = False            # Marcar como no disponible
+        self.ordered = False              # No tiene orden asignada
+        self.client_id = ''               # Sin cliente asignado
+        self.returning_to_base = True     # Indicar que está regresando a la base
+        # Iniciar un hilo para supervisar la llegada a la base
+        monitor_thread = threading.Thread(target=self.monitor_return_to_base)
+        monitor_thread.start()
+
+    def monitor_return_to_base(self):
+        while self.returning_to_base:
+            if self.position == [1, 1]:
+                print("Taxi ha llegado a la base.")
+                self.status = 'KO'             # Cambiar el estado a 'KO'
+                self.returning_to_base = False # Dejar de supervisar
+                self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#KO#{self.position[0]}#{self.position[1]}")
+                print("Estado del taxi cambiado a 'KO'.")
+            else:
+                self.updateCoordinates()  # Mover el taxi hacia la base
+                self.send_to_kafka(TOPIC_TAXI_UPDATES, f"{self.taxi_id}#OK#{self.position[0]}#{self.position[1]}")
+            time.sleep(1)
+
 if __name__ == "__main__":
-    if len(sys.argv) != 6:
-        print("Usage: python digital_engine.py <EC_Central_IP> <EC_Central_Port> <Kafka_IP_Port> <EC_DE_Port> <Taxi_ID>")
+    if len(sys.argv) != 9:
+        print("Usage: python digital_engine.py <EC_Central_IP> <EC_Central_Port> <Kafka_IP_Port> <EC_DE_Port> <Taxi_ID> <Registry_IP> <Registry_Port> <Cert_Path>")
+        sys.exit(1)
+    
+    registry_url = f"https://{sys.argv[6]}:{sys.argv[7]}"
+    cert_path = sys.argv[8]
+    
+    # Verify certificate exists
+    if not os.path.exists(cert_path):
+        print(f"Certificate not found at {cert_path}")
+        sys.exit(1)
+    
+    # Show initial registry menu with cert path
+    if not show_registry_menu(int(sys.argv[5]), registry_url, cert_path):
         sys.exit(1)
         
-    DE = DigitalEngine(sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], int(sys.argv[5]))
-
+    # Create Digital Engine instance with cert path
+    DE = DigitalEngine(
+        sys.argv[1], 
+        int(sys.argv[2]), 
+        sys.argv[3], 
+        sys.argv[4], 
+        int(sys.argv[5]),
+        sys.argv[6],
+        sys.argv[7],
+        cert_path
+    )
+    
     DE.recogido = False
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect(DE.ec_central_addr)

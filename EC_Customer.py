@@ -57,7 +57,6 @@ class ECCustomer:
         self.producer.send(TOPIC_SOLICITUDES_TAXIS, value=message)
 
     def wait_arrival(self):
-        """Espera la llegada del taxi para el cliente a través de Kafka."""
         print("LISTENING")
         for msg in self.consumer:
             if msg is None:
@@ -66,9 +65,10 @@ class ECCustomer:
                 mensaje = msg.value
                 print(f'THE MSG IS {mensaje}')
                 mensajes = mensaje.split('#')
-                client_id = mensajes[3]
-                if self.customer_id == client_id:
-                    return "you have arrived to your destination"
+                if len(mensajes) >= 4:
+                    client_id = mensajes[3]
+                    if self.customer_id == client_id:
+                        return "You have arrived at your destination"
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:

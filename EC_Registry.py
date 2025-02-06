@@ -1,3 +1,4 @@
+import ipaddress
 from flask import Flask, request, jsonify
 import json
 import os
@@ -48,6 +49,8 @@ def generate_certificates():
     Genera un certificado autofirmado y una clave privada si no existen.
     """
     if not os.path.exists("cert.pem") or not os.path.exists("key.pem"):
+       
+        server_ip = socket.gethostbyname(socket.gethostname())
         # Generar clave privada
         key = rsa.generate_private_key(
             public_exponent=65537,
@@ -60,7 +63,7 @@ def generate_certificates():
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"California"),
             x509.NameAttribute(NameOID.LOCALITY_NAME, u"San Francisco"),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"My Company"),
-            x509.NameAttribute(NameOID.COMMON_NAME, u"localhost"),
+            x509.NameAttribute(NameOID.COMMON_NAME, server_ip),
         ])
         cert = x509.CertificateBuilder().subject_name(
             subject
@@ -75,7 +78,8 @@ def generate_certificates():
         ).not_valid_after(
             datetime.datetime.utcnow() + datetime.timedelta(days=365)
         ).add_extension(
-            x509.SubjectAlternativeName([x509.DNSName(u"localhost")]),
+            x509.SubjectAlternativeName([x509.DNSName(u"localhost"),
+            x509.IPAddress(ipaddress.IPv4Address(server_ip))]),
             critical=False,
         ).sign(key, hashes.SHA256())
 
@@ -148,7 +152,7 @@ def is_registered(taxi_id):
 
 if __name__ == '__main__':
         # Validar argumentos
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print("Usage: python EC_Registry.py <IP_CENTRAL> <PORT_CENTRAL> [<PORT_REGISTRY>]")
         sys.exit(1)
 

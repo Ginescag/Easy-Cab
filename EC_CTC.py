@@ -118,11 +118,11 @@ def shutdown():
     func()
     return jsonify({'message': 'Servidor cerrado'}), 200
 
-def run_flask(port):
+def run_flask(ip, port):
     """
     Ejecuta el servidor Flask.
     """
-    app.run(host=socket.gethostbyname(socket.gethostname()), port=port, debug=False, use_reloader=False)
+    app.run(host=ip, port=port, debug=False, use_reloader=False)
 
 def cli_menu():
     """
@@ -162,7 +162,7 @@ def cli_menu():
             new_city = answers['new_city'].strip()
             if new_city:
                 try:
-                    response = requests.post(f'http://localhost:{port}/set_city', json={'city': new_city})
+                    response = requests.post(f'http://{ip}:{port}/set_city', json={'city': new_city})
                     if response.status_code == 200:
                         data = response.json()
                         print(f"Ciudad cambiada a {data['message']}. Estado del tráfico: {data['new_status']}")
@@ -173,7 +173,7 @@ def cli_menu():
                     print(f"Error al comunicar con el servidor: {e}")
         elif action == 'Ver estado actual del tráfico':
             try:
-                response = requests.get(f'http://localhost:{port}/get_traffic_status')
+                response = requests.get(f'http://{ip}:{port}/get_traffic_status')
                 if response.status_code == 200:
                     data = response.json()
                     print(f"Ciudad: {data['city']}")
@@ -184,7 +184,7 @@ def cli_menu():
                 print(f"Error al comunicar con el servidor: {e}")
         elif action == 'Ver temperatura actual':
             try:
-                response = requests.get(f'http://localhost:{port}/get_temperature')
+                response = requests.get(f'http://{ip}:{port}/get_temperature')
                 if response.status_code == 200:
                     data = response.json()
                     print(f"Temperatura actual en {data['city']}: {data['temperature']}°C")
@@ -198,7 +198,7 @@ def cli_menu():
             print("Saliendo del menú de EC_CTC...")
             print("Cerrando aplicación...")
             try:
-                requests.post(f'http://localhost:{port}/shutdown')
+                requests.post(f'http://{ip}:{port}/shutdown')
             except Exception:
                 pass
             break
@@ -219,12 +219,13 @@ def periodic_temperature_check():
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        print('USAGE: EC_CTC.py <API_PORT> ')
+        print("Uso: python EC_CTC.py <puerto>")
         sys.exit(1)
+    ip = socket.gethostbyname(socket.gethostname())
+    port = sys.argv[1]
 
-    port = int(sys.argv[1])
-
-    flask_thread = threading.Thread(target=run_flask, args=(port,), daemon=True)
+    print(f"Iniciando EC_CTC... en {ip}:{port}")
+    flask_thread = threading.Thread(target=run_flask, args=(ip, port), daemon=True)
     flask_thread.start()
 
     temperature_thread = threading.Thread(target=periodic_temperature_check, daemon=True)
